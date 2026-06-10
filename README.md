@@ -1,4 +1,4 @@
-# Car Price Predictor
+# DealFinder AI
 
 This project helps you check whether a car listed on **PakWheels** is **fairly priced** or **undervalued**.  
 
