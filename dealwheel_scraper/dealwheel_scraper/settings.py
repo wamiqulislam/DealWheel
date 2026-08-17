@@ -34,6 +34,14 @@ RETRY_HTTP_CODES = [408, 429, 500, 502, 503, 504, 522, 524]
 
 COOKIES_ENABLED = True
 
+# We were only rotating User-Agent and sending nothing else — a header set
+# that's missing Accept/Accept-Language is itself a common bot signal, even
+# with a convincing UA string.
+DEFAULT_REQUEST_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
 PROXY_URL = os.getenv("PROXY_URL")  # optional; leave unset in .env to disable
 
 DOWNLOADER_MIDDLEWARES = {

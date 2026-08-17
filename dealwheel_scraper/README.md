@@ -1,9 +1,8 @@
 # DealWheel Scraper (Scrapy + PostgreSQL)
 
-Production scraper for PakWheels used-car listings: a one-time full crawl to
-seed the database, plus a daily incremental crawl that only pulls in what's
-new. Built against the `cars.listings` / `cars.scrape_log` schema you already
-have in Postgres.
+Production scraper for PakWheels used-car listings. Built against the
+`cars.listings` / `cars.scrape_log` schema, extended with a few new columns
+and a staging table — see `migrations/0002_add_new_columns.sql`.
 
 ## Project layout
 
@@ -11,6 +10,8 @@ have in Postgres.
 scrapy.cfg
 requirements.txt
 .env.example
+migrations/
+└── 0002_add_new_columns.sql   # run this once against an existing DB
 dealwheel_scraper/
 ├── settings.py          # throttling, retries, pipelines, middlewares
 ├── items.py              # ListingItem field definitions
@@ -19,10 +20,12 @@ dealwheel_scraper/
 ├── db_models.py          # engine, ScrapeLog ORM model, DB helpers
 ├── feature_columns.py    # dynamic feature_* column management
 ├── pipelines.py          # Validation -> Cleaning -> Postgres (upsert+log)
-├── middlewares.py        # UA rotation, proxy, random delay, block detection
+├── middlewares.py        # UA (one per run), proxy, random delay, block detection
 └── spiders/
-    ├── base_spider.py           # shared listing-page parsing
-    ├── pakwheels_full.py        # one-time full crawl
+    ├── base_spider.py            # shared parsing, pagination, redirect detection
+    ├── pakwheels_full.py         # one-pass full crawl (smaller/quicker runs)
+    ├── pakwheels_discover.py     # two-phase workflow, phase 1: collect URLs
+    ├── pakwheels_scrape_urls.py  # two-phase workflow, phase 2: scrape them
     └── pakwheels_incremental.py # daily incremental crawl
 ```
 
@@ -35,85 +38,101 @@ pip install -r requirements.txt
 cp .env.example .env           # then fill in DATABASE_URL at minimum
 ```
 
-Your Postgres schema/tables (the `cars.listings` / `cars.scrape_log` DDL you
-already wrote) need to exist before you run either spider — this project
-doesn't create them.
+Run `migrations/0002_add_new_columns.sql` against your database (adds
+`registered_in`, `assembly`, `is_featured` to `cars.listings`, plus the new
+`cars.discovered_urls` staging table) before using this version.
 
 ## Running it
 
-```bash
-# once, to seed the database (~70k listings — expect this to take a long time
-# given the intentional rate limiting)
-scrapy crawl pakwheels_full
+**For the most complete initial seed (~70k+ listings)**, use the two-phase
+workflow:
 
+```bash
+scrapy crawl pakwheels_discover      # phase 1: collect every listing URL (~3100 requests, fast)
+scrapy crawl pakwheels_scrape_urls   # phase 2: scrape each one (slow, but immune to reordering)
+```
+
+Phase 1 only walks the search-index pages, so it finishes in a fraction of
+the time a combined crawl would take. That matters because PakWheels'
+listing feed reorders live as sellers renew/edit ads — the shorter phase 1
+takes, the less the site can reshuffle underneath it, so the URL list it
+produces is far more complete. Phase 2 never touches the search pages again,
+so reordering there can't cause it to miss anything — it's just working
+through a fixed list. If phase 2 gets interrupted, just re-run it; it only
+re-fetches rows in `cars.discovered_urls` still marked `scraped = FALSE`.
+
+**For smaller or quicker runs**, `pakwheels_full` still works as a single
+combined pass — same underlying parsing/pipeline, just more exposed to
+reordering on very long runs.
+
+```bash
 # daily, going forward
 scrapy crawl pakwheels_incremental
 ```
 
-Logs go to both the console and `logs/dealwheel_scraper.log` (configurable
-via `LOG_FILE`/`LOG_LEVEL` in `.env`). Every run — full or incremental — also
-writes one row to `cars.scrape_log` when it finishes (or is stopped), with
-counts and duration.
+To start a clean initial seed from scratch:
+```sql
+TRUNCATE TABLE cars.listings, cars.discovered_urls RESTART IDENTITY;
+```
+(`RESTART IDENTITY` resets the `id` sequence — a good practice for a clean
+reseed, though it wasn't the cause of any missed listings; that was reordering
+during long single-pass crawls, which the two-phase workflow addresses.)
 
-Scheduling this with cron/GitHub Actions is intentionally left for later,
-per your notes — both spiders are plain `scrapy crawl` commands, so wiring
-that up later is just a scheduler entry, no code changes needed.
+Logs go to both the console and `logs/dealwheel_scraper.log`. Every run
+writes one row to `cars.scrape_log` when it finishes (or is stopped).
+
+## Columns added in this version
+
+- **`registered_in`** — where the car is registered (e.g. Karachi,
+  Islamabad), read from the on-page spec list. Deliberately separate from
+  `city`, which is where the ad/seller currently is — registration location
+  matters on its own (e.g. cars registered in humid coastal cities are
+  often priced lower due to rust exposure).
+- **`assembly`** — `Local` or `Imported`, as stated on the ad.
+- **`is_featured`** — whether the seller paid to feature the ad (checked via
+  the page's carousel/ribbon markup). `NULL` means the expected carousel
+  structure wasn't found at all (distinct from a confirmed `FALSE`).
 
 ## Things worth knowing / double-checking
 
-**`ROBOTSTXT_OBEY` is `False`.** I wasn't able to fetch pakwheels.com's
-current robots.txt from here to check what it allows. Your old
-requests+BeautifulSoup scraper didn't check it either. Take a look at
-`https://www.pakwheels.com/robots.txt` yourself and flip the setting in
-`settings.py` if you'd rather Scrapy respect it — also worth a quick look at
-their Terms of Service if you haven't already, independent of robots.txt.
+**Live reordering, not a code bug, was the main cause of missed listings.**
+A single ~6-hour combined crawl walks through pages sorted by a still-somewhat
+volatile order; sellers renewing/editing ads during that window shift
+listings to different pages than where the crawl first encountered them.
+Scrapy's dupefilter correctly avoids re-scraping those, but some other
+listings drift out of view entirely during the run and are never landed on.
+The two-phase workflow (`pakwheels_discover` + `pakwheels_scrape_urls`)
+addresses this by keeping the reorder-exposed part of the crawl (walking
+search pages) as short as possible, and making the slow part (detail
+scraping) immune to further reordering since it works off a fixed list.
 
-**The "sort by newest" assumption doesn't hold, so the incremental spider
-works differently than the spec sketch.** I checked the live search page —
-PakWheels' sort dropdown only offers *Updated Date* (`bumped_at-desc/asc`),
-price, model year, and mileage. There's no "date posted"/listing-ID sort.
-`bumped_at` reflects the last time a listing was renewed/bumped, not when it
-was created, so a recently-renewed old listing can appear ahead of a
-brand-new one — "stop at the first listing_id you've already seen" isn't
-reliable here, because IDs aren't in strict order in this feed.
+**A consistent User-Agent per run, not per request.** Rotating it on every
+single request while cookies stay session-consistent (Scrapy's cookie jar
+persists across a whole crawl) is an inconsistent fingerprint that some
+anti-bot systems react to by quietly serving a reduced page (missing
+features/seller comments) rather than an outright block. Each fresh
+`scrapy crawl` picks a new random UA, but uses it consistently for that
+entire run.
 
-Instead, `PostgresPipeline` tracks how many **consecutive** listings in a row
-it just upserted as "already existed," and closes the spider once that streak
-hits `duplicate_stop_threshold` (50, i.e. roughly two pages of nothing new) —
-set on `PakwheelsIncrementalSpider` only, so the full crawl never stops early.
-There's also a hard `MAX_PAGES` cap as a backstop. Tune both in
-`spiders/pakwheels_incremental.py` once you've watched a few real runs and
-have a feel for how "bumpy" the feed actually is.
+**Pagination redirect detection.** If a search-page request lands on a
+different `page=N` than requested (PakWheels redirecting once you're deep
+enough into `?page=N` pagination), the spider now detects this explicitly,
+logs why, and stops paginating cleanly instead of silently looping into
+already-visited pages.
 
-**Feature columns are added per the spec (one `SMALLINT` column per feature,
-default 0), not a JSONB catch-all.** This is fine as long as PakWheels'
-feature vocabulary stays a small, consistent set of checkboxes (Air
-Conditioning, ABS, Power Steering, etc.) — if you ever see it fragment into
-many near-duplicate names, an `extra_specs JSONB` column would scale better
-than one column per variant. Easy to add later if needed.
+**`ROBOTSTXT_OBEY` is `False`** — check `https://www.pakwheels.com/robots.txt`
+yourself if you want Scrapy to respect it instead.
 
-**The on-page spec list (`#scroll_car_detail`) is only used as a fallback**
-to fill in anything JSON-LD is missing for your existing fixed columns
-(mileage, transmission, color, etc.) — it is *not* turned into extra DB
-columns. Only the separate feature checklist (`.car-feature-list`) drives
-`feature_*` columns, per your spec.
+**Feature columns** are added on the fly, one `BOOLEAN` column per feature
+seen (`feat_air_conditioning`, `feat_abs`, ...) — fine as long as PakWheels'
+feature vocabulary stays a small, consistent set of checkboxes. If your
+database has any of these left over as `smallint` from an earlier version,
+run `migrations/0003_fix_feature_column_types.sql` (no-op if they're already
+boolean).
+feature vocabulary stays a small, consistent set of checkboxes.
 
-**Concurrency/delay defaults**: `CONCURRENT_REQUESTS=16`, random delay
-1.8–3.7s per request, AutoThrottle on top as a second layer that backs off
-further if PakWheels starts responding slowly. All tunable via `.env` without
-touching code.
-
-## What I verified live vs. what's carried over from your old code
-
-Verified against the current site: the `a.car-name` link selector on search
-result pages, the `?sortby=` values, and that `/used-cars/search/-/` is the
-right listing index with `page` as the pagination parameter.
-
-Carried over from your existing (working) BeautifulSoup scraper without
-independent re-verification here: the JSON-LD field names
-(`brand`/`model`/`modelDate`/`mileageFromOdometer`/`vehicleEngine.engineDisplacement`/etc.),
-the `#scroll_car_detail` spec-list structure, and the `.car-feature-list` /
-`#scroll_seller_comments` selectors. Worth running `pakwheels_full` against a
-small page-limit first (e.g. temporarily cap pages in the spider) to confirm
-a handful of rows land in Postgres looking right before letting it run
-unattended against all ~70k listings.
+**Three-layer field extraction** (JSON-LD → on-page spec list → meta
+description sentence → title-based brand/model/year guess) — see the
+docstring at the top of `extractors.py` for exactly which layer supplies
+which fields, and the known limitation with genuine two-word brands (e.g.
+"Land Rover") in the title-based guess.

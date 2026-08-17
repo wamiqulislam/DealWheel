@@ -43,6 +43,7 @@ class CleaningPipeline:
     TEXT_FIELDS = (
         "title", "city", "brand", "model", "color", "body_type",
         "fuel_type", "transmission", "description", "seller_comments",
+        "registered_in", "assembly",
     )
 
     def process_item(self, item, spider):
@@ -74,15 +75,24 @@ class PostgresPipeline:
     lets updated_ads in scrape_log mean something.
 
     Feature columns are added on the fly via FeatureColumnManager. For an
-    INSERT, any feature_* column not mentioned keeps its table DEFAULT of 0;
-    for an UPDATE we explicitly set every known feature_* column to 0/1 so a
-    feature that disappeared from a re-scraped ad doesn't linger as stale 1.
+    INSERT, any feature_* column not mentioned keeps its table DEFAULT of
+    FALSE; for an UPDATE we explicitly set every known feature_* column to
+    TRUE/FALSE so a feature that disappeared from a re-scraped ad doesn't
+    linger as stale TRUE.
+
+    Also best-effort marks the corresponding row in cars.discovered_urls as
+    scraped, if one exists — used by the two-phase full-crawl workflow
+    (pakwheels_discover + pakwheels_scrape_urls) to track progress and allow
+    resuming an interrupted run. This is a no-op (not an error) for listings
+    scraped via pakwheels_full or pakwheels_incremental, which don't use that
+    staging table.
     """
 
     FIXED_COLUMNS = (
         "listing_id", "title", "brand", "model", "year", "city", "mileage",
         "fuel_type", "transmission", "engine_capacity", "color", "body_type",
         "price", "ad_url", "description", "seller_comments",
+        "registered_in", "assembly", "is_featured",
     )
 
     def __init__(self):
@@ -136,7 +146,10 @@ class PostgresPipeline:
 
         present_slugs = self.feature_manager.ensure_columns(adapter.get("features") or [])
         all_known = self.feature_manager.known_feature_columns
-        feature_values = {slug: (1 if slug in present_slugs else 0) for slug in all_known}
+        # Sent as Python bool (True/False), not int 0/1 — cars.listings'
+        # feat_* columns are BOOLEAN, and Postgres won't implicitly cast an
+        # integer to boolean in a parameterized INSERT/UPDATE.
+        feature_values = {slug: (slug in present_slugs) for slug in all_known}
 
         try:
             inserted = self._upsert(fixed_values, feature_values)
@@ -184,4 +197,26 @@ class PostgresPipeline:
 
         with self.engine.begin() as conn:
             row = conn.execute(sql, values).fetchone()
-            return bool(row[0]) if row else False
+            inserted = bool(row[0]) if row else False
+
+        self._mark_discovered_scraped(fixed_values.get("listing_id"))
+        return inserted
+
+    def _mark_discovered_scraped(self, listing_id) -> None:
+        if not listing_id:
+            return
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "UPDATE cars.discovered_urls SET scraped = TRUE, "
+                        "scraped_at = CURRENT_TIMESTAMP WHERE listing_id = :listing_id"
+                    ),
+                    {"listing_id": listing_id},
+                )
+        except Exception:
+            # discovered_urls is an optional staging table (used only by the
+            # two-phase full-crawl workflow) — deliberately a separate
+            # transaction from the main upsert above, so a missing table here
+            # can never roll back or fail the actual listing save.
+            pass

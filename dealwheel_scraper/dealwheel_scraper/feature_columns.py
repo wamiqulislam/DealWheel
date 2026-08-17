@@ -2,10 +2,10 @@
 Manages the dynamic feature_* columns on cars.listings.
 
 PakWheels ads list a variable set of tick-box features ("Air Conditioning",
-"Power Steering", "ABS", ...). Per spec, each distinct feature becomes its own
-SMALLINT column (1 = present, 0 = absent), added on the fly the first time
-it's seen, with existing rows defaulting to 0 for any column that didn't exist
-yet when they were inserted.
+"Power Steering", "ABS", ...). Each distinct feature becomes its own BOOLEAN
+column (TRUE = present, FALSE = absent), added on the fly the first time
+it's seen, with existing rows defaulting to FALSE for any column that didn't
+exist yet when they were inserted.
 
 Note: this can grow the table wide if PakWheels' feature vocabulary is large
 or inconsistently worded (e.g. "AC" vs "Air Conditioning" would become two
@@ -59,7 +59,7 @@ class FeatureColumnManager:
     def _add_column(self, slug: str) -> None:
         # slug is produced by slugify_feature, which only ever emits [a-z0-9_],
         # so this is safe from injection even though it's built with an f-string.
-        ddl = text(f'ALTER TABLE {self.schema}.{self.table} ADD COLUMN IF NOT EXISTS "{slug}" SMALLINT DEFAULT 0')
+        ddl = text(f'ALTER TABLE {self.schema}.{self.table} ADD COLUMN IF NOT EXISTS "{slug}" BOOLEAN DEFAULT FALSE')
         with self.engine.begin() as conn:
             conn.execute(ddl)
         self._known_columns.add(slug)

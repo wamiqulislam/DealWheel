@@ -31,8 +31,29 @@ USER_AGENTS = [
 
 
 class RandomUserAgentMiddleware:
+    """Picks ONE realistic User-Agent per crawl run (not per request) and
+    applies it to every request in that run.
+
+    Rotating the UA on every single request while cookies stay consistent
+    for the whole session (Scrapy's cookie jar persists across the crawl by
+    default) is an internally contradictory fingerprint — a real browser
+    session never changes its UA mid-session. Several listings coming back
+    with randomly missing feature-lists/seller-comments across otherwise
+    identical re-runs, with no pattern to which listings are affected, looks
+    exactly like a CDN/anti-bot system reacting to that inconsistency by
+    quietly serving a reduced page instead of an outright block. A fresh
+    `scrapy crawl` still gets a new random pick each time, just consistent
+    for the duration of that run."""
+
+    def __init__(self, user_agent):
+        self.user_agent = user_agent
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls(random.choice(USER_AGENTS))
+
     def process_request(self, request, spider):
-        request.headers["User-Agent"] = random.choice(USER_AGENTS)
+        request.headers["User-Agent"] = self.user_agent
 
 
 class ProxyMiddleware:
@@ -66,7 +87,8 @@ class RandomDelayMiddleware:
         )
 
     def process_request(self, request, spider):
-        delay = random.uniform(self.min_delay, self.max_delay)
+        multiplier = request.meta.get("retry_multiplier", 1)
+        delay = random.uniform(self.min_delay, self.max_delay) * multiplier
         d = defer.Deferred()
         reactor.callLater(delay, d.callback, None)
         return d

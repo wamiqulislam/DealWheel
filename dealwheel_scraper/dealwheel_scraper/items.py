@@ -17,6 +17,9 @@ class ListingItem(scrapy.Item):
     body_type = scrapy.Field()
     description = scrapy.Field()
     seller_comments = scrapy.Field()
+    registered_in = scrapy.Field()
+    assembly = scrapy.Field()
+    is_featured = scrapy.Field()
 
     # raw values as scraped; CleaningPipeline turns these into the typed
     # fields below and does not forward the _raw fields to the DB layer

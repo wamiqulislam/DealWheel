@@ -2,7 +2,6 @@ import scrapy
 
 from ..db_models import get_engine, get_max_listing_id
 from .base_spider import BasePakWheelsSpider
-from .pakwheels_full import PakwheelsFullSpider
 
 # PakWheels' own search UI only exposes sorting by *last update* ("bumped_at"),
 # price, model year, or mileage — there's no "date posted"/listing-ID sort
@@ -52,19 +51,32 @@ class PakwheelsIncrementalSpider(BasePakWheelsSpider):
         yield scrapy.Request(INCREMENTAL_SEARCH_URL, meta={"page": 1}, callback=self.parse)
 
     def parse(self, response):
-        page = response.meta.get("page", 1)
-        ad_links = response.css("a.car-name::attr(href)").getall()
-        if not ad_links:
-            self.logger.info("No listings found on %s — stopping.", response.url)
+        requested_page = response.meta.get("page", 1)
+
+        if self.check_page_redirect(response, requested_page):
+            for href in response.css("a.car-name::attr(href)").getall():
+                yield response.follow(href, callback=self.parse_listing, errback=self.handle_error)
             return
 
+        ad_links = response.css("a.car-name::attr(href)").getall()
+
+        if not ad_links:
+            retry_request = self.retry_or_none(response)
+            if retry_request:
+                yield retry_request
+                return
+            next_url = self._next_page_url(response)
+            if requested_page < self.MAX_PAGES:
+                yield response.follow(next_url, callback=self.parse, meta={"page": requested_page + 1})
+            return
+
+        self.note_page_had_listings(response)
         for href in ad_links:
             yield response.follow(href, callback=self.parse_listing, errback=self.handle_error)
 
-        if page >= self.MAX_PAGES:
+        if requested_page >= self.MAX_PAGES:
             self.logger.info("Hit MAX_PAGES=%d safety cap — stopping.", self.MAX_PAGES)
             return
 
-        next_url = PakwheelsFullSpider._next_page_url(response)
-        if next_url:
-            yield response.follow(next_url, callback=self.parse, meta={"page": page + 1})
+        next_url = self._next_page_url(response)
+        yield response.follow(next_url, callback=self.parse, meta={"page": requested_page + 1})
