@@ -1,0 +1,22 @@
+# --- Core data processing ---
+# Developed and tested against pandas 3.0 / numpy 2.4; 2.1+ should
+# also work since only long-stable APIs (groupby/transform, cut,
+# str accessor, to_sql) are used.
+pandas>=2.1,<4.0
+numpy>=1.26,<3.0
+
+# --- Database ---
+SQLAlchemy>=2.0,<3.0
+psycopg2-binary>=2.9,<3.0
+
+# --- Config ---
+python-dotenv>=1.0,<2.0
+
+# --- Testing ---
+pytest>=7.4,<9.0
+
+# --- Not needed yet ---
+# scikit-learn, xgboost/lightgbm, matplotlib/seaborn, jupyter, etc.
+# will go in a separate requirements-ml.txt once src/training and
+# notebooks/ are built out -- kept out of this file so installing the
+# cleaning/feature pipeline stays fast and dependency-light.
