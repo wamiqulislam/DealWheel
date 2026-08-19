@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from config.column_manifest import PROCESSED_LISTINGS_COLUMNS
-from main import clean_dataframe  # src/preprocessing/main.py
+from clean import clean_dataframe  # src/preprocessing/clean.py
 from build_features import build_features, select_processed_columns
 
 SAMPLE_CSV = Path(__file__).resolve().parent.parent / "data" / "raw" / "sample_listings.csv"

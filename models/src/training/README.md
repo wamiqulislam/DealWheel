@@ -11,4 +11,4 @@ analysis-only / leakage-risk column (see
 `config/column_manifest.py` and the "Target leakage" section of the
 root README for why those are excluded).
 
-Trained artifacts should be saved under `saved models/`.
+Trained artifacts should be saved under `saved_models/`.

@@ -46,7 +46,7 @@ models/
 │   └── interim/                              <- scratch space, gitignored
 │
 ├── notebooks/                   <- not built yet (placeholder + README)
-├── saved models/                <- not built yet (trained model artifacts go here)
+├── saved_models/                <- not built yet (trained model artifacts go here)
 ├── tests/                       <- pytest suite, one file per src/features module
 └── logs/
 ```
@@ -202,7 +202,7 @@ does a blanket `dropna()` across every column. That's correct for
 columns where a NULL genuinely makes a row unusable, but a NULL raw
 `color` is expected and already has its own fallback
 (`color_cleaner.py` turns it into `color_clean = "Unknown"`) -- so
-`src/preprocessing/main.py`'s `clean_dataframe()` fills `title`,
+`src/preprocessing/clean.py`'s `clean_dataframe()` fills `title`,
 `description`, `seller_comments`, `ad_url`, and `color` with `""`
 *before* that dropna, so a NULL in any of them can't silently drop
 the row before `color_clean`'s fallback or `src/features`'s keyword

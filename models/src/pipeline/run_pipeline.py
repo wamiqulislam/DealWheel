@@ -55,7 +55,7 @@ for path in (PROJECT_ROOT, SRC_DIR, PREPROCESSING_DIR, FEATURES_DIR):
         sys.path.insert(0, path_str)
 
 from config.settings import DB_SCHEMA  # noqa: E402
-from main import clean_dataframe  # noqa: E402  (src/preprocessing/main.py)
+from clean import clean_dataframe  # noqa: E402  (src/preprocessing/clean.py)
 from build_features import build_features, select_processed_columns  # noqa: E402
 
 

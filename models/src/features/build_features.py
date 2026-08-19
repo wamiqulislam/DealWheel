@@ -2,7 +2,7 @@
 src/features/build_features.py
 
 Runs the full "part 2" pipeline (feature engineering) on an already-
-cleaned dataframe (i.e. the output of src/preprocessing/main.py):
+cleaned dataframe (i.e. the output of src/preprocessing/clean.py):
 
     1. text_cleaning      - standardize text/categorical columns
     2. seller_keywords    - seller_* flags from quick-comment buttons
