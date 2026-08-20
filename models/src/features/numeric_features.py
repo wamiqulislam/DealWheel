@@ -21,7 +21,7 @@ FALLBACK_CURRENT_YEAR in .env if you always want literal wall-clock
 current year behavior instead.
 
 ASSUMPTION -- AVERAGE_KM_PER_YEAR (config/settings.py, default
-12,000 km/year): used to compute the "expected" mileage for a car of
+9500 km/year): used to compute the "expected" mileage for a car of
 a given age. This number is a genuine assumption -- there's no
 authoritative source for average annual mileage in Pakistan baked
 into the data, so this is a reasonable default you can override via

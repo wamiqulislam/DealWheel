@@ -4,18 +4,15 @@ duplicates_impossibles.py
     1. Removes duplicate listings (by listing_id)
     2. Removes rows with impossible numeric values:
          - price   <= 0 or NULL
-         - year    < 1950 or > 2027, or NULL
+         - year    < 1900 or > 2027, or NULL
          - mileage < 0 or NULL
          - engine_capacity < 0 or NULL
 """
 
 import pandas as pd
+from config.settings import MIN_YEAR, MAX_YEAR
 
 NUMERIC_COLUMNS = ["listing_id", "year", "mileage", "engine_capacity", "price"]
-
-MIN_YEAR = 1950
-MAX_YEAR = 2027
-
 
 def remove_duplicate_listings(df):
     dup_mask = df["listing_id"].duplicated(keep="first")

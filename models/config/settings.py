@@ -47,13 +47,13 @@ DATABASE_URL = os.getenv(
 # year instead (more correct when processing data scraped across
 # multiple years). This is only the fallback for rows with no
 # scrape_date.
-FALLBACK_CURRENT_YEAR = int(os.getenv("FALLBACK_CURRENT_YEAR", "2026"))
+FALLBACK_CURRENT_YEAR = 2026
 
 # Assumed average kilometres driven per year in Pakistan, used to
 # compute the "expected" mileage for a car of a given age
 # (mileage_ratio = mileage / (car_age * AVERAGE_KM_PER_YEAR)).
 # This is a genuine assumption -- adjust if you have better local data.
-AVERAGE_KM_PER_YEAR = int(os.getenv("AVERAGE_KM_PER_YEAR", "12000"))
+AVERAGE_KM_PER_YEAR = 9500
 
 # is_new_car / is_very_old thresholds
 NEW_CAR_MAX_AGE = 1
@@ -61,9 +61,15 @@ VERY_OLD_MIN_AGE = 15
 
 # is_high_mileage / is_low_mileage thresholds (on mileage_ratio)
 HIGH_MILEAGE_RATIO = 1.2
-LOW_MILEAGE_RATIO = 0.8
+LOW_MILEAGE_RATIO = 0.5
 
 # Year sanity bounds, mirrored from duplicates_impossibles.py so
 # bucket edges stay consistent with what preprocessing already allows.
-MIN_YEAR = 1950
+MIN_YEAR = 1900
 MAX_YEAR = 2027
+
+# ============================================================
+# Debug / performance
+# ============================================================
+
+SHOW_PIPELINE_TIMER = True

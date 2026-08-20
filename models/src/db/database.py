@@ -6,7 +6,7 @@ tables. Everything else in this project works on plain pandas
 DataFrames -- this module is the only place that talks to the
 database directly.
 
-GOTCHA this module exists partly to protect against:
+this module exists partly to protect against:
 cars.processed_listings.listing_id is declared as
 `REFERENCES cars.listings(id)` -- i.e. it is a foreign key to the
 raw table's own auto-increment PRIMARY KEY (`listings.id`), NOT to

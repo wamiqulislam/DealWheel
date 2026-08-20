@@ -29,6 +29,8 @@ Run `python -m src.pipeline.run_pipeline --help` for all options.
 
 import argparse
 import sys
+import time
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -57,6 +59,8 @@ for path in (PROJECT_ROOT, SRC_DIR, PREPROCESSING_DIR, FEATURES_DIR):
 from config.settings import DB_SCHEMA  # noqa: E402
 from clean import clean_dataframe  # noqa: E402  (src/preprocessing/clean.py)
 from build_features import build_features, select_processed_columns  # noqa: E402
+from config.settings import SHOW_PIPELINE_TIMER
+
 
 
 def load_from_csv(input_csv):
@@ -119,6 +123,10 @@ def fix_color_column(df):
 
 
 def run(source="db", input_csv=None, write="db", output_csv=None, write_mode="replace", limit=None, include_log_price=False):
+    
+    if SHOW_PIPELINE_TIMER:
+        start, stop_event, timer_thread = start_timer()
+    
     # ---- load ----
     if source == "csv":
         if not input_csv:
@@ -160,6 +168,11 @@ def run(source="db", input_csv=None, write="db", output_csv=None, write_mode="re
         print(f"[pipeline] wrote {len(processed):,} rows to {output_csv}")
 
     print(f"[pipeline] done -- {len(processed):,} rows, {processed.shape[1]:,} columns")
+
+    if SHOW_PIPELINE_TIMER:
+        stop_event.set()
+        print(f"[timer] TOTAL: {time.perf_counter() - start:.1f}s")
+        
     return processed
 
 
@@ -184,8 +197,23 @@ def parse_args():
     return parser.parse_args()
 
 
+def start_timer():
+    start = time.perf_counter()
+    stop_event = threading.Event()
+
+    def timer():
+        while not stop_event.wait(0.5):
+            elapsed = time.perf_counter() - start
+            print(f"[timer] {elapsed:.1f}s elapsed")
+
+    thread = threading.Thread(target=timer, daemon=True)
+    thread.start()
+
+    return start, stop_event, thread
+
 if __name__ == "__main__":
     args = parse_args()
+
     run(
         source=args.source,
         input_csv=args.input,
